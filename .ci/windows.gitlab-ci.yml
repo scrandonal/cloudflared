@@ -1,114 +1,109 @@
-include:
-  - local: .ci/commons.gitlab-ci.yml
+# Windows CI pipeline for cloudflared
+# Handles building and packaging cloudflared for Windows targets
 
-###################################
-### Defaults for Windows Builds ###
-###################################
-.windows-build-defaults: &windows-build-defaults
-  rules:
-    - !reference [.default-rules, run-always]
+.windows-defaults: &windows-defaults
   tags:
-    - windows-x86
-  cache: {}
+    - windows
+  before_script:
+    - $env:PATH = "C:\Go\bin;" + $env:PATH
+    - go version
+    - go env
 
-##########################################
-### Build Cloudflared Windows Binaries ###
-##########################################
-windows-build-cloudflared:
-  <<: *windows-build-defaults
+.windows-build-defaults: &windows-build-defaults
+  <<: *windows-defaults
   stage: build
   script:
-    - powershell -ExecutionPolicy Bypass -File ".\.ci\scripts\windows\go-wrapper.ps1" "${WIN_GO_VERSION}" ".\.ci\scripts\windows\builds.ps1"
+    - |
+      $env:GOOS = "windows"
+      $env:GOARCH = $ARCH
+      $env:CGO_ENABLED = "0"
+      $VERSION = (git describe --tags --always --dirty 2>$null)
+      if (-not $VERSION) { $VERSION = "dev" }
+      $BUILD_TIME = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+      $LDFLAGS = "-X main.Version=$VERSION -X main.BuildTime=$BUILD_TIME -s -w"
+      Write-Host "Building cloudflared for windows/$env:GOARCH version $VERSION"
+      go build -ldflags $LDFLAGS -o "cloudflared-windows-$env:GOARCH.exe" ./cmd/cloudflared
   artifacts:
     paths:
-      - artifacts/*
+      - "cloudflared-windows-*.exe"
+    expire_in: 1 week
 
-######################################################
-### Load Environment Variables for Component Tests ###
-######################################################
-windows-load-env-variables:
-  stage: pre-build
-  extends: .component-tests
-  script:
-    - echo "COMPONENT_TESTS_CONFIG=$COMPONENT_TESTS_CONFIG" >> windows.env
-    - echo "COMPONENT_TESTS_CONFIG_CONTENT=$COMPONENT_TESTS_CONFIG_CONTENT" >> windows.env
-    - echo "DNS_API_TOKEN=$DNS_API_TOKEN" >> windows.env
-    # We have to encode the `COMPONENT_TESTS_ORIGINCERT` secret, because it content is a file, otherwise we can't export it using gitlab
-    - echo "COMPONENT_TESTS_ORIGINCERT=$(echo "$COMPONENT_TESTS_ORIGINCERT" | base64 -w0)" >> windows.env
-    - echo "KEY_VAULT_URL=$KEY_VAULT_URL" >> windows.env
-    - echo "KEY_VAULT_CLIENT_ID=$KEY_VAULT_CLIENT_ID" >> windows.env
-    - echo "KEY_VAULT_TENANT_ID=$KEY_VAULT_TENANT_ID" >> windows.env
-    - echo "KEY_VAULT_SECRET=$KEY_VAULT_SECRET" >> windows.env
-    - echo "KEY_VAULT_CERTIFICATE=$KEY_VAULT_CERTIFICATE" >> windows.env
+build:windows:amd64:
+  <<: *windows-build-defaults
   variables:
-    COMPONENT_TESTS_CONFIG_CONTENT: Y2xvdWRmbGFyZWRfYmluYXJ5OiAuL2Nsb3VkZmxhcmVkLmV4ZQpjcmVkZW50aWFsc19maWxlOiBjcmVkLmpzb24Kb3JpZ2luY2VydDogY2VydC5wZW0Kem9uZV9kb21haW46IGFyZ290dW5uZWx0ZXN0LmNvbQp6b25lX3RhZzogNDg3OTZmMWU3MGJiNzY2OWMyOWJiNTFiYTI4MmJmNjU=
-  secrets:
-    KEY_VAULT_URL:
-      vault: gitlab/cloudflare/tun/cloudflared/_dev/azure_vault/app_info/key_vault_url@kv
-      file: false
-    KEY_VAULT_CLIENT_ID:
-      vault: gitlab/cloudflare/tun/cloudflared/_dev/azure_vault/app_info/key_vault_client_id@kv
-      file: false
-    KEY_VAULT_TENANT_ID:
-      vault: gitlab/cloudflare/tun/cloudflared/_dev/azure_vault/app_info/key_vault_tenant_id@kv
-      file: false
-    KEY_VAULT_SECRET:
-      vault: gitlab/cloudflare/tun/cloudflared/_dev/azure_vault/secret/key_vault_secret@kv
-      file: false
-    KEY_VAULT_CERTIFICATE:
-      vault: gitlab/cloudflare/tun/cloudflared/_dev/azure_vault/certificate/key_vault_certificate@kv
-      file: false
-  artifacts:
-    access: 'none'
-    reports:
-      dotenv: windows.env
+    ARCH: amd64
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
 
-###################################
-### Run Windows Component Tests ###
-###################################
-windows-component-tests-cloudflared:
+build:windows:386:
   <<: *windows-build-defaults
+  variables:
+    ARCH: "386"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+test:windows:amd64:
+  <<: *windows-defaults
   stage: test
-  needs: ["windows-load-env-variables"]
+  needs:
+    - build:windows:amd64
+  variables:
+    ARCH: amd64
   script:
-    # We have to decode the secret we encoded on the `windows-load-env-variables` job
-    - $env:COMPONENT_TESTS_ORIGINCERT = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:COMPONENT_TESTS_ORIGINCERT))
-    - powershell -ExecutionPolicy Bypass -File ".\.ci\scripts\windows\go-wrapper.ps1" "${WIN_GO_VERSION}" ".\.ci\scripts\windows\component-test.ps1"
-  artifacts:
-    reports:
-      junit: report.xml
-
-################################
-### Package Windows Binaries ###
-################################
-windows-package:
+    - |
+      $env:CGO_ENABLED = "0"
+      Write-Host "Running unit tests for windows/amd64"
+      go test -v -count=1 -timeout 5m ./...
   rules:
-    - !reference [.default-rules, run-on-master]
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+package:windows:msi:
+  <<: *windows-defaults
   stage: package
   needs:
-    - ci-image-get-image-ref
-    - windows-build-cloudflared
-  image: $BUILD_IMAGE
+    - build:windows:amd64
   script:
-    - .ci/scripts/package-windows.sh
-  cache: {}
+    - |
+      Write-Host "Packaging cloudflared MSI installer"
+      # Requires WiX toolset installed on the runner
+      if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+        Write-Warning "WiX toolset not found, skipping MSI packaging"
+        exit 0
+      }
+      $VERSION = (git describe --tags --always --dirty 2>$null)
+      if (-not $VERSION) { $VERSION = "0.0.0" }
+      # Strip leading 'v' from version if present
+      $VERSION = $VERSION.TrimStart('v')
+      candle.exe -dVersion=$VERSION -dBinaryPath="cloudflared-windows-amd64.exe" packaging/windows/cloudflared.wxs
+      light.exe -o "cloudflared-$VERSION-amd64.msi" cloudflared.wixobj
   artifacts:
     paths:
-      - artifacts/*
-
-#############################
-### Sign Windows Binaries ###
-#############################
-windows-package-sign:
-  <<: *windows-build-defaults
+      - "cloudflared-*.msi"
+    expire_in: 1 week
   rules:
-    - !reference [.default-rules, run-on-master]
-  stage: package
+    - if: '$CI_COMMIT_TAG'
+
+sign:windows:
+  <<: *windows-defaults
+  stage: sign
   needs:
-    - windows-package
-    - windows-load-env-variables
+    - package:windows:msi
   script:
-    - powershell -ExecutionPolicy Bypass -File ".\.ci\scripts\windows\sign-msi.ps1"
+    - |
+      Write-Host "Signing cloudflared MSI"
+      if (-not $env:WINDOWS_SIGNING_CERT) {
+        Write-Warning "No signing certificate configured, skipping signing"
+        exit 0
+      }
+      $MSI = Get-Item "cloudflared-*.msi" | Select-Object -First 1
+      signtool.exe sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $env:WINDOWS_SIGNING_CERT $MSI.Name
   artifacts:
     paths:
-      - artifacts/*
+      - "cloudflared-*.msi"
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_TAG'
