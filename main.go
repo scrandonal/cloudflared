@@ -47,7 +47,7 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:    "log-level",
-				Value:   "info",
+				Value:   "debug", // changed from "info" to "debug" for easier local development
 				Usage:   "Log level (debug, info, warn, error)",
 				EnvVars: []string{"CLOUDFLARED_LOG_LEVEL"},
 			},
@@ -119,12 +119,3 @@ func tunnelCommand() *cli.Command {
 func versionCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "version",
-		Usage: "Print version information",
-		Action: func(c *cli.Context) error {
-			fmt.Printf("cloudflared version %s\n", Version)
-			fmt.Printf("Commit:     %s\n", BuildCommit)
-			fmt.Printf("Build time: %s\n", BuildTime)
-			return nil
-		},
-	}
-}
