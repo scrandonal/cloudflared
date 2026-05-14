@@ -91,6 +91,7 @@ func configureLogging(level, format string) error {
 		log.Logger = log.Output(zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			TimeFormat: "15:04:05", // shortened from RFC3339 — easier to read during dev
+			NoColor:    false,      // keep colors enabled; helps distinguish log levels at a glance
 		})
 	}
 
@@ -109,12 +110,3 @@ func tunnelCommand() *cli.Command {
 				Action: func(c *cli.Context) error {
 					log.Info().Msg("Starting tunnel...")
 					// TODO: implement tunnel run logic
-					return nil
-				},
-			},
-		},
-	}
-}
-
-// versionCommand returns the CLI command for printing version info.
-func versionCo
