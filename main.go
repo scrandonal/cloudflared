@@ -107,5 +107,5 @@ func tunnelCommand() *cli.Command {
 			{
 				Name:  "run",
 				Usage: "Run a tunnel",
-				// TODO: add --dry-run flag to validate config without actually connecting
-				Action: func(c *cli.Context)
+				// TODO: add --dry-run flag
+				// TODO: add --reconnect-interval flag to control backoff (default upstream is 5s, feels too aggressive)
