@@ -107,6 +107,5 @@ func tunnelCommand() *cli.Command {
 			{
 				Name:  "run",
 				Usage: "Run a tunnel",
-				Action: func(c *cli.Context) error {
-					log.Info().Msg("Starting tunnel...")
-					// TODO: implement tunnel run logic
+				// TODO: add --dry-run flag to validate config without actually connecting
+				Action: func(c *cli.Context)
