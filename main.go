@@ -87,9 +87,10 @@ func configureLogging(level, format string) error {
 	if format == "json" {
 		log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	} else {
+		// Use a slightly more readable time format for local console output
 		log.Logger = log.Output(zerolog.ConsoleWriter{
 			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
+			TimeFormat: "15:04:05", // shortened from RFC3339 — easier to read during dev
 		})
 	}
 
@@ -116,6 +117,4 @@ func tunnelCommand() *cli.Command {
 }
 
 // versionCommand returns the CLI command for printing version info.
-func versionCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "version",
+func versionCo
